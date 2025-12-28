@@ -210,10 +210,44 @@
     const text = article.textContent
     if (!text) return
 
-    // Get the text node(s) - normalize to ensure single text node
-    article.normalize()
-    const textNode = article.firstChild
-    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return
+    // Collect all text nodes and build position map
+    const textNodes = []
+    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT)
+    let node
+    while ((node = walker.nextNode())) {
+      textNodes.push(node)
+    }
+    if (!textNodes.length) return
+
+    // Build cumulative position map for each text node
+    const nodePositions = []
+    let cumulative = 0
+    for (const tn of textNodes) {
+      nodePositions.push({ node: tn, start: cumulative, end: cumulative + tn.length })
+      cumulative += tn.length
+    }
+
+    // Helper to find node and offset for a given text position
+    function findPosition(pos) {
+      for (const np of nodePositions) {
+        if (pos >= np.start && pos <= np.end) {
+          return { node: np.node, offset: pos - np.start }
+        }
+      }
+      // Fallback to last node
+      const last = nodePositions[nodePositions.length - 1]
+      return { node: last.node, offset: last.node.length }
+    }
+
+    // Create range that works across multiple text nodes
+    function createRange(startPos, endPos) {
+      const range = new Range()
+      const startInfo = findPosition(startPos)
+      const endInfo = findPosition(endPos)
+      range.setStart(startInfo.node, startInfo.offset)
+      range.setEnd(endInfo.node, endInfo.offset)
+      return range
+    }
 
     // Highlight collections
     const markers = []
@@ -235,58 +269,59 @@
           const firstNewline = match.indexOf('\n') + 1
           const lastNewline = match.lastIndexOf('\n')
           // Opening ```
-          markers.push(createRange(textNode, start, start + firstNewline))
+          markers.push(createRange(start, start + firstNewline))
           // Content
           if (lastNewline > firstNewline) {
-            codeblock.push(createRange(textNode, start + firstNewline, start + lastNewline))
+            codeblock.push(createRange(start + firstNewline, start + lastNewline))
           }
           // Closing ```
-          markers.push(createRange(textNode, start + lastNewline, end))
+          markers.push(createRange(start + lastNewline, end))
         }
       },
       // Inline code
       {
         re: /`([^`\n]+)`/g,
-        process: (match, start, groups) => {
-          markers.push(createRange(textNode, start, start + 1))
-          code.push(createRange(textNode, start + 1, start + match.length - 1))
-          markers.push(createRange(textNode, start + match.length - 1, start + match.length))
+        process: (match, start) => {
+          markers.push(createRange(start, start + 1))
+          code.push(createRange(start + 1, start + match.length - 1))
+          markers.push(createRange(start + match.length - 1, start + match.length))
         }
       },
       // Bold **text**
       {
         re: /\*\*([^*\n]+?)\*\*/g,
         process: (match, start) => {
-          markers.push(createRange(textNode, start, start + 2))
-          bold.push(createRange(textNode, start + 2, start + match.length - 2))
-          markers.push(createRange(textNode, start + match.length - 2, start + match.length))
+          markers.push(createRange(start, start + 2))
+          bold.push(createRange(start + 2, start + match.length - 2))
+          markers.push(createRange(start + match.length - 2, start + match.length))
         }
       },
       // Strikethrough ~~text~~
       {
         re: /~~([^~\n]+?)~~/g,
         process: (match, start) => {
-          markers.push(createRange(textNode, start, start + 2))
-          strike.push(createRange(textNode, start + 2, start + match.length - 2))
-          markers.push(createRange(textNode, start + match.length - 2, start + match.length))
+          markers.push(createRange(start, start + 2))
+          strike.push(createRange(start + 2, start + match.length - 2))
+          markers.push(createRange(start + match.length - 2, start + match.length))
         }
       },
       // Italic *text* (but not **)
       {
         re: /(?<!\*)\*([^*\n]+?)\*(?!\*)/g,
         process: (match, start) => {
-          markers.push(createRange(textNode, start, start + 1))
-          italic.push(createRange(textNode, start + 1, start + match.length - 1))
-          markers.push(createRange(textNode, start + match.length - 1, start + match.length))
+          markers.push(createRange(start, start + 1))
+          italic.push(createRange(start + 1, start + match.length - 1))
+          markers.push(createRange(start + match.length - 1, start + match.length))
         }
       },
       // Headings # text
       {
         re: /^(#{1,6})[ \t]+(.*)$/gm,
         process: (match, start) => {
-          const hashEnd = match.indexOf(' ')
-          markers.push(createRange(textNode, start, start + hashEnd + 1))
-          heading.push(createRange(textNode, start + hashEnd + 1, start + match.length))
+          const hashMatch = match.match(/^#{1,6}[ \t]/)
+          const hashEnd = hashMatch ? hashMatch[0].length : match.indexOf(' ') + 1
+          markers.push(createRange(start, start + hashEnd))
+          heading.push(createRange(start + hashEnd, start + match.length))
         }
       },
       // Links [text](url)
@@ -294,9 +329,9 @@
         re: /\[([^\]\n]+?)\]\(([^)\n]+?)\)/g,
         process: (match, start) => {
           const bracketEnd = match.indexOf(']')
-          markers.push(createRange(textNode, start, start + 1)) // [
-          link.push(createRange(textNode, start + 1, start + bracketEnd)) // text
-          markers.push(createRange(textNode, start + bracketEnd, start + match.length)) // ](url)
+          markers.push(createRange(start, start + 1)) // [
+          link.push(createRange(start + 1, start + bracketEnd)) // text
+          markers.push(createRange(start + bracketEnd, start + match.length)) // ](url)
         }
       }
     ]
@@ -323,13 +358,6 @@
     if (heading.length) CSS.highlights.set('md-heading', new Highlight(...heading))
     if (link.length) CSS.highlights.set('md-link', new Highlight(...link))
     if (codeblock.length) CSS.highlights.set('md-codeblock', new Highlight(...codeblock))
-  }
-
-  function createRange(node, start, end) {
-    const range = new Range()
-    range.setStart(node, start)
-    range.setEnd(node, end)
-    return range
   }
 
   async function download() {
