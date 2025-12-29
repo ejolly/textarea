@@ -207,36 +207,62 @@
     // Clear existing highlights
     CSS.highlights.clear()
 
-    const text = article.textContent
-    if (!text) return
-
-    // Collect all text nodes and build position map
-    const textNodes = []
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT)
-    let node
-    while ((node = walker.nextNode())) {
-      textNodes.push(node)
-    }
-    if (!textNodes.length) return
-
-    // Build cumulative position map for each text node
+    // Build text and position map, accounting for <br> elements
+    // which contribute newlines visually but not in textContent
     const nodePositions = []
-    let cumulative = 0
-    for (const tn of textNodes) {
-      nodePositions.push({ node: tn, start: cumulative, end: cumulative + tn.length })
-      cumulative += tn.length
+    let text = ''
+
+    function walkNodes(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        nodePositions.push({ node, start: text.length, end: text.length + node.length, type: 'text' })
+        text += node.textContent
+      } else if (node.nodeName === 'BR') {
+        // BR elements contribute a newline to the logical text
+        nodePositions.push({ node, start: text.length, end: text.length + 1, type: 'br' })
+        text += '\n'
+      } else if (node.childNodes) {
+        for (const child of node.childNodes) {
+          walkNodes(child)
+        }
+      }
     }
+    walkNodes(article)
+
+    if (!text || !nodePositions.length) return
 
     // Helper to find node and offset for a given text position
     function findPosition(pos) {
-      for (const np of nodePositions) {
-        if (pos >= np.start && pos <= np.end) {
+      for (let i = 0; i < nodePositions.length; i++) {
+        const np = nodePositions[i]
+        if (pos >= np.start && pos < np.end) {
+          if (np.type === 'br') {
+            // Position falls on a BR newline - use end of previous text node
+            for (let j = i - 1; j >= 0; j--) {
+              if (nodePositions[j].type === 'text') {
+                return { node: nodePositions[j].node, offset: nodePositions[j].node.length }
+              }
+            }
+            // No previous text node, use start of next text node
+            for (let j = i + 1; j < nodePositions.length; j++) {
+              if (nodePositions[j].type === 'text') {
+                return { node: nodePositions[j].node, offset: 0 }
+              }
+            }
+          }
           return { node: np.node, offset: pos - np.start }
         }
+        // Handle position at exact end of this node
+        if (pos === np.end && np.type === 'text') {
+          return { node: np.node, offset: np.node.length }
+        }
       }
-      // Fallback to last node
-      const last = nodePositions[nodePositions.length - 1]
-      return { node: last.node, offset: last.node.length }
+      // Fallback to end of last text node
+      for (let i = nodePositions.length - 1; i >= 0; i--) {
+        if (nodePositions[i].type === 'text') {
+          return { node: nodePositions[i].node, offset: nodePositions[i].node.length }
+        }
+      }
+      return null
     }
 
     // Create range that works across multiple text nodes
@@ -244,6 +270,7 @@
       const range = new Range()
       const startInfo = findPosition(startPos)
       const endInfo = findPosition(endPos)
+      if (!startInfo || !endInfo) return null
       range.setStart(startInfo.node, startInfo.offset)
       range.setEnd(endInfo.node, endInfo.offset)
       return range
@@ -349,15 +376,24 @@
       }
     }
 
-    // Register highlights
-    if (markers.length) CSS.highlights.set('md-marker', new Highlight(...markers))
-    if (bold.length) CSS.highlights.set('md-bold', new Highlight(...bold))
-    if (italic.length) CSS.highlights.set('md-italic', new Highlight(...italic))
-    if (code.length) CSS.highlights.set('md-code', new Highlight(...code))
-    if (strike.length) CSS.highlights.set('md-strike', new Highlight(...strike))
-    if (heading.length) CSS.highlights.set('md-heading', new Highlight(...heading))
-    if (link.length) CSS.highlights.set('md-link', new Highlight(...link))
-    if (codeblock.length) CSS.highlights.set('md-codeblock', new Highlight(...codeblock))
+    // Register highlights (filter out any null ranges)
+    const validMarkers = markers.filter(Boolean)
+    const validBold = bold.filter(Boolean)
+    const validItalic = italic.filter(Boolean)
+    const validCode = code.filter(Boolean)
+    const validStrike = strike.filter(Boolean)
+    const validHeading = heading.filter(Boolean)
+    const validLink = link.filter(Boolean)
+    const validCodeblock = codeblock.filter(Boolean)
+
+    if (validMarkers.length) CSS.highlights.set('md-marker', new Highlight(...validMarkers))
+    if (validBold.length) CSS.highlights.set('md-bold', new Highlight(...validBold))
+    if (validItalic.length) CSS.highlights.set('md-italic', new Highlight(...validItalic))
+    if (validCode.length) CSS.highlights.set('md-code', new Highlight(...validCode))
+    if (validStrike.length) CSS.highlights.set('md-strike', new Highlight(...validStrike))
+    if (validHeading.length) CSS.highlights.set('md-heading', new Highlight(...validHeading))
+    if (validLink.length) CSS.highlights.set('md-link', new Highlight(...validLink))
+    if (validCodeblock.length) CSS.highlights.set('md-codeblock', new Highlight(...validCodeblock))
   }
 
   async function download() {
