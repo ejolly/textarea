@@ -1,4 +1,4 @@
-const CACHE_NAME = 'textarea-v3'
+const CACHE_NAME = 'textarea-v4'
 const ASSETS = [
   '/',
   '/qr',
