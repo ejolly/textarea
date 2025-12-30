@@ -125,9 +125,18 @@
   // Check for CSS Custom Highlight API support
   const hasHighlightAPI = 'CSS' in window && 'highlights' in CSS
 
+  // Decode URI-encoded hash (browsers percent-encode Unicode in location.hash)
+  function getHash() {
+    try {
+      return decodeURIComponent(location.hash)
+    } catch {
+      return location.hash
+    }
+  }
+
   async function load() {
     try {
-      if (location.hash !== '') await set(location.hash)
+      if (location.hash !== '') await set(getHash())
       else {
         await set(localStorage.getItem('hash') ?? '')
         if (article.textContent) history.replaceState({}, '', await get())
@@ -149,7 +158,7 @@
 
   async function save() {
     const hash = await get()
-    if (location.hash !== hash) history.replaceState({}, '', hash)
+    if (getHash() !== hash) history.replaceState({}, '', hash)
     try { localStorage.setItem('hash', hash) } catch (e) {}
     updateTitle()
   }
@@ -172,17 +181,27 @@
     document.title = match?.[1]?.trim() ?? 'Textarea'
   }
 
+  // Base65536: Unicode-based encoding (~2 bytes per character vs base64's 0.75)
+  // Encodes 16 bits per Unicode code point for ~40% shorter URLs
+  // Source: https://github.com/qntm/base65536
+  const base65536=function(r){"use strict";const o={},t={};["㐀䴀一鼀ꄀꐀꔀꘀ𐘀𐜀𒀀𒌀𓀀𓐀𔐀𔘀𖠀𖨀𠀀𨘀","ᔀᘀ"].forEach(((r,n)=>{const e=16-8*n;o[e]={};let c=0;r.match(/../gu).forEach((r=>{const[n,f]=[...r].map((r=>r.codePointAt(0)));for(let r=n;r<f;r++){const n=String.fromCodePoint(r),f=16===e?c%256*256+(c>>8):c;o[e][f]=n,t[n]=[e,f],c++}}))}));return r.decode=r=>{const o=r.length,n=new Uint8Array(Math.floor(16*o/8));let e=0,c=0,f=0,a=!1;for(const o of r){if(a)throw new Error("Secondary character found before end of input");if(!(o in t))throw new Error(`Unrecognised Base65536 character: ${o}`);const[r,i]=t[o];for(let o=r-1;o>=0;o--){c=(c<<1)+(i>>o&1),f++,8===f&&(n[e]=c,e++,c=0,f=0)}16!==r&&(a=!0)}if(c!==(1<<f)-1)throw new Error("Padding mismatch");return new Uint8Array(n.buffer,0,e)},r.encode=r=>{const t=r.length;let n="",e=0,c=0;for(let f=0;f<t;f++){const t=r[f];for(let r=7;r>=0;r--){e=(e<<1)+(t>>r&1),c++,16===c&&(n+=o[c][e],e=0,c=0)}}if(0!==c){for(;!(c in o);)e=1+(e<<1),c++;n+=o[c][e]}return n},r}({});
+
   // Compression: Brotli with fallback to deflate-raw
-  // Format: prefix byte ('0' = deflate-raw, '1' = brotli) + base64url encoded data
+  // Format prefixes:
+  //   '0' = deflate-raw + base64url (legacy)
+  //   '1' = brotli + base64url (legacy)
+  //   '2' = brotli + base65536 (~40% shorter URLs)
+  //   '3' = deflate-raw + base65536 (fallback when brotli unavailable)
+  //   no prefix = legacy deflate-raw + base64url
   async function compress(string) {
     const byteArray = new TextEncoder().encode(string)
-    let format = 'deflate-raw', prefix = '0'
+    let format = 'deflate-raw', prefix = '3'
 
     // Try Brotli if available
     try {
       new CompressionStream('br')
       format = 'br'
-      prefix = '1'
+      prefix = '2'
     } catch {}
 
     const stream = new CompressionStream(format)
@@ -190,7 +209,7 @@
     writer.write(byteArray)
     writer.close()
     const buffer = await new Response(stream.readable).arrayBuffer()
-    return prefix + new Uint8Array(buffer).toBase64({alphabet: 'base64url'})
+    return prefix + base65536.encode(new Uint8Array(buffer))
   }
 
   async function decompress(data) {
@@ -199,8 +218,17 @@
     // Detect format from prefix
     let format = 'deflate-raw'
     let encoded = data
+    let useBase65536 = false
 
-    if (data[0] === '1') {
+    if (data[0] === '2') {
+      format = 'br'
+      encoded = data.slice(1)
+      useBase65536 = true
+    } else if (data[0] === '3') {
+      format = 'deflate-raw'
+      encoded = data.slice(1)
+      useBase65536 = true
+    } else if (data[0] === '1') {
       format = 'br'
       encoded = data.slice(1)
     } else if (data[0] === '0') {
@@ -209,7 +237,10 @@
     }
     // No prefix = legacy deflate-raw format (backwards compatibility)
 
-    const byteArray = Uint8Array.fromBase64(encoded, {alphabet: 'base64url'})
+    const byteArray = useBase65536
+      ? base65536.decode(encoded)
+      : Uint8Array.fromBase64(encoded, {alphabet: 'base64url'})
+
     const stream = new DecompressionStream(format)
     const writer = stream.writable.getWriter()
     writer.write(byteArray)
