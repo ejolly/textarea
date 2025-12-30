@@ -85,6 +85,22 @@
   ::highlight(md-marker) {
     color: rgba(128, 128, 128, 0.5);
   }
+
+  ::highlight(md-blockquote) {
+    color: #57606a;
+    @media (prefers-color-scheme: dark) {
+      color: #8b949e;
+    }
+  }
+
+  ::highlight(md-hr) {
+    color: rgba(128, 128, 128, 0.4);
+  }
+
+  ::highlight(md-task-done) {
+    text-decoration: line-through;
+    color: rgba(128, 128, 128, 0.6);
+  }
 </style>
 <article contenteditable="plaintext-only" spellcheck></article>
 <script>
@@ -293,6 +309,9 @@
     const heading = []
     const link = []
     const codeblock = []
+    const blockquote = []
+    const hr = []
+    const taskDone = []
 
     // Patterns with capture groups for markers vs content
     const patterns = [
@@ -368,6 +387,79 @@
           link.push(createRange(start + 1, start + bracketEnd)) // text
           markers.push(createRange(start + bracketEnd, start + match.length)) // ](url)
         }
+      },
+      // Images ![alt](url)
+      {
+        re: /!\[([^\]\n]*?)\]\(([^)\n]+?)\)/g,
+        process: (match, start) => {
+          const bracketEnd = match.indexOf(']')
+          markers.push(createRange(start, start + 2)) // ![
+          link.push(createRange(start + 2, start + bracketEnd)) // alt text
+          markers.push(createRange(start + bracketEnd, start + match.length)) // ](url)
+        }
+      },
+      // Blockquotes > text
+      {
+        re: /^(>+)[ \t]?(.*)$/gm,
+        process: (match, start) => {
+          const markerMatch = match.match(/^>+[ \t]?/)
+          const markerEnd = markerMatch ? markerMatch[0].length : 1
+          markers.push(createRange(start, start + markerEnd))
+          if (match.length > markerEnd) {
+            blockquote.push(createRange(start + markerEnd, start + match.length))
+          }
+        }
+      },
+      // Horizontal rules (---, ***, ___)
+      {
+        re: /^[ \t]*([-*_])\1{2,}[ \t]*$/gm,
+        process: (match, start) => {
+          hr.push(createRange(start, start + match.length))
+        }
+      },
+      // Unordered lists (- item, * item, + item)
+      {
+        re: /^([ \t]*)([-*+])[ \t]+/gm,
+        process: (match, start) => {
+          const indentMatch = match.match(/^[ \t]*/)
+          const indent = indentMatch ? indentMatch[0].length : 0
+          markers.push(createRange(start + indent, start + indent + 1)) // bullet
+        }
+      },
+      // Ordered lists (1. item)
+      {
+        re: /^([ \t]*)(\d+\.)[ \t]+/gm,
+        process: (match, start) => {
+          const indentMatch = match.match(/^[ \t]*/)
+          const indent = indentMatch ? indentMatch[0].length : 0
+          const numMatch = match.match(/\d+\./)
+          const numLen = numMatch ? numMatch[0].length : 2
+          markers.push(createRange(start + indent, start + indent + numLen)) // number.
+        }
+      },
+      // Task lists unchecked (- [ ] item)
+      {
+        re: /^([ \t]*[-*+])[ \t]+\[ \][ \t]+/gm,
+        process: (match, start) => {
+          const bulletMatch = match.match(/^[ \t]*[-*+]/)
+          const bulletEnd = bulletMatch ? bulletMatch[0].length : 1
+          markers.push(createRange(start, start + bulletEnd)) // bullet
+          markers.push(createRange(start + bulletEnd, start + match.length)) // [ ]
+        }
+      },
+      // Task lists checked (- [x] item)
+      {
+        re: /^([ \t]*[-*+])[ \t]+\[[xX]\][ \t]+(.*)$/gm,
+        process: (match, start) => {
+          const bulletMatch = match.match(/^[ \t]*[-*+]/)
+          const bulletEnd = bulletMatch ? bulletMatch[0].length : 1
+          const checkboxMatch = match.match(/^[ \t]*[-*+][ \t]+\[[xX]\][ \t]+/)
+          const checkboxEnd = checkboxMatch ? checkboxMatch[0].length : bulletEnd + 5
+          markers.push(createRange(start, start + checkboxEnd)) // bullet + [x] + space
+          if (match.length > checkboxEnd) {
+            taskDone.push(createRange(start + checkboxEnd, start + match.length)) // content
+          }
+        }
       }
     ]
 
@@ -393,6 +485,9 @@
     const validHeading = heading.filter(Boolean)
     const validLink = link.filter(Boolean)
     const validCodeblock = codeblock.filter(Boolean)
+    const validBlockquote = blockquote.filter(Boolean)
+    const validHr = hr.filter(Boolean)
+    const validTaskDone = taskDone.filter(Boolean)
 
     if (validMarkers.length) CSS.highlights.set('md-marker', new Highlight(...validMarkers))
     if (validBold.length) CSS.highlights.set('md-bold', new Highlight(...validBold))
@@ -402,6 +497,9 @@
     if (validHeading.length) CSS.highlights.set('md-heading', new Highlight(...validHeading))
     if (validLink.length) CSS.highlights.set('md-link', new Highlight(...validLink))
     if (validCodeblock.length) CSS.highlights.set('md-codeblock', new Highlight(...validCodeblock))
+    if (validBlockquote.length) CSS.highlights.set('md-blockquote', new Highlight(...validBlockquote))
+    if (validHr.length) CSS.highlights.set('md-hr', new Highlight(...validHr))
+    if (validTaskDone.length) CSS.highlights.set('md-task-done', new Highlight(...validTaskDone))
   }
 
   async function download() {

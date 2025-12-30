@@ -17,8 +17,13 @@ Type markdown and see it styled in real-time:
 - `Code` (`` `code` ``)
 - ~~Strikethrough~~ (`~~text~~`)
 - Links (`[text](url)`)
+- Images (`![alt](url)`)
 - Headings (`# H1` through `###### H6`)
 - Code blocks (triple backticks)
+- Blockquotes (`> text`)
+- Horizontal rules (`---`)
+- Lists (`- item`, `1. item`)
+- Task lists (`- [ ] todo`, `- [x] done`)
 
 Markdown syntax markers are dimmed for a clean reading experience.
 
