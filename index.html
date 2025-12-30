@@ -37,19 +37,25 @@
     overflow-wrap: break-word;
   }
 
-  /* Markdown content styling via CSS Custom Highlight API */
+  /* Markdown content styling via CSS Custom Highlight API
+     Note: Only color, background-color, and text-decoration are supported.
+     Properties like font-weight, font-style, font-family, opacity are ignored. */
   ::highlight(md-bold) {
-    font-weight: bold;
+    color: #953800;
+    @media (prefers-color-scheme: dark) {
+      color: #ffa657;
+    }
   }
 
   ::highlight(md-italic) {
-    font-style: italic;
+    color: #6639ba;
+    @media (prefers-color-scheme: dark) {
+      color: #d2a8ff;
+    }
   }
 
   ::highlight(md-code) {
-    font-family: ui-monospace, monospace;
-    background-color: rgba(128, 128, 128, 0.15);
-    border-radius: 3px;
+    background-color: rgba(128, 128, 128, 0.2);
   }
 
   ::highlight(md-strike) {
@@ -57,7 +63,10 @@
   }
 
   ::highlight(md-heading) {
-    font-weight: bold;
+    color: #0550ae;
+    @media (prefers-color-scheme: dark) {
+      color: #58a6ff;
+    }
   }
 
   ::highlight(md-link) {
@@ -69,13 +78,12 @@
   }
 
   ::highlight(md-codeblock) {
-    font-family: ui-monospace, monospace;
     background-color: rgba(128, 128, 128, 0.15);
   }
 
-  /* Dimmed markers */
+  /* Dimmed markers - use transparent color since opacity is not supported */
   ::highlight(md-marker) {
-    opacity: 0.3;
+    color: rgba(128, 128, 128, 0.5);
   }
 </style>
 <article contenteditable="plaintext-only" spellcheck></article>
